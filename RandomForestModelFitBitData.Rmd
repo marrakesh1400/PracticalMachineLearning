@@ -1,0 +1,173 @@
+#Random Forest Modeling of Exercise Quality
+
+##Synopsis
+In this report, I describe the methodology and results of a Random Forests model applied to a data set of personal exercise devices such as FitBit, Jawbone Up, and the Nike FuelBand. The data set was acquired from a Brazilian research team (http://groupware.les.inf.puc-rio.br/har) and includes 160 variables from 6 human subjects who performed a number of exercises and tests with belts, dumbbells, etc. 
+
+The objective was to create an accurate model of the quality of their exercise based on exercise device data. Exercise quality is categorized into one of 5 classes, named A-E. A is considered high quality exercise whereas the remaining classes are deficient in some way. The report below includes the following:
+-Exploratory analysis of the data set
+-Data cleaning and preparation
+-Creation of the training and test data sets
+-Cross validation and reporting out of sample error
+-Prediction of exercise quality for 20 separate subjects
+
+The Random Forest model is shown to be very accurate, with Out of Sample Errors above 90% for all classes.
+
+###Data loading 
+```{r, echo=TRUE, cache = TRUE}
+# Load required libraries
+require(caret)
+# open training data set
+setwd("C:/OEB/Courses/Coursera/Materials/Practical Machine Learning")
+data = read.csv("pml-training.csv", header = T)
+# get dimensions of data set
+dim(data)
+# read in testing data set
+dataTest = read.csv("pml-testing.csv", header = T)
+
+```
+
+###Exploratory analysis and data cleaning
+
+Hence, we are using only the numeric data variables, totaling 12.
+
+```{r, echo = TRUE, cache = TRUE, fig.height = 5, fig.width=5}
+
+# exploratory analysis
+# get all values of classe, the key variable in this data set
+unique(data$classe)
+
+# Columns of numerical data as predictors and the outcome class (#160)
+dataCols = c(8,9,10,46,47,48,84,85,86,122,123,124,160)
+
+# do random forest model on the data set
+temp = seq(1,19622,by=10)
+temp2 = seq(2,19622,by=20)
+train_sub = data[temp, dataCols]
+test_sub = data[temp2,dataCols]
+
+# verify that we are using only the most useful, numerical predictors 
+# for the model
+str(train_sub)
+
+# get unique classes
+uniqClasses = unique(data$classe)
+```
+###Exploratory plots
+Let's see if some of the variables are autocorrelated. Figure 1 shows scatter plot pairs for the roll variable of each of the four exercises and you can see that the variables are not autocorrelated. The same is true for the pitch and yaw metrics.
+
+```{r, echo = TRUE}
+# make plot of variable pairs
+pairs(train_sub[,c(1,4,7,10)], main = "Roll variable of four exercises")
+```
+
+**Figure 1.** 
+
+
+```{r, echo = FALSE}
+# function to make multiplots, from R Cookbook (http://www.cookbook-r.com/Graphs/Multiple_graphs_on_one_page_(ggplot2)/)
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+```
+
+In Figure 2, we show a panel of density diagrams for pitch with respect to the four different exercises. These panels show that although the variables are not autocorrelated (as shown in Figure 1), they do obviously differ between classes, potentially allowing successful modeling of the classes.
+
+```{r, echo = TRUE, CACHE = TRUE}
+# make plots
+p1 = qplot(roll_forearm, colour=classe, data=train_sub, geom='density')
+p2 =  qplot(roll_arm, colour=classe, data=train_sub, geom='density')
+p3 =  qplot(roll_forearm, colour=classe, data=train_sub, geom='density')
+p4 =  qplot(roll_dumbbell, colour=classe, data=train_sub, geom='density') 
+
+# function to make multiplots, from R Cookbook (http://www.cookbook-r.com/Graphs/Multiple_graphs_on_one_page_(ggplot2)/)
+multiplot(p1,p2,p3,p4, cols = 2)
+
+```
+
+**Figure 2.**
+
+###Data modeling and cross validation
+This is the key section where we train the Random Forest model, make predictions for the test data using the fitted model, and then calculate the In and Out of Sample Accuracies for the model. First, let's train the Random Forest model and calculate the In Sample Accuracy.
+
+```{r, echo=TRUE, cache = TRUE}
+# create Random Forest regression tree model
+modFit = train(classe ~ .,data = train_sub, method = "rf")
+# get accuracy of model 
+print('Estimate of In Sample Accuracy:')
+max(modFit$results[,2])
+```
+
+As we see above, the In Sample Accuracy is relatively high at about 89%. Next, we apply the model to predict the classes for the testing group to cross validate. Here, we will predict accuracy for each of the five classes and we find that those are quite high, ranging between 93-98% accuracy, so not too bad!
+
+```{r, echo=TRUE, CACHE = TRUE}
+# make predictions with the model
+pred = predict(modFit, test_sub)
+# make table of predicted versus actual classe
+test_sub$predRight = pred==test_sub$classe
+accuracy = table(pred, test_sub$classe)
+# get diagonals, the correct predictions
+accuracyDiag = diag(accuracy)
+# divide each diagonal value by column total, that's the total accuracy
+# get accuracy for all of the five classes
+for (i in 1:5){
+  print(paste("Accuracy of class",uniqClasses[i],":"))
+  print(accuracyDiag[i]/sum(accuracy[,i]))
+}
+
+```
+
+###Prediction for 20 new subjects
+In the final step, we predict the classes for 20 different test subjects using the training model generated above. These will be printed to individual text files to be submitted to the Coursera web page.
+
+```{r, echo = TRUE}
+# apply the modFit Random Forest model to the 20 test subjects
+dataTest_sub = dataTest[,dataCols]
+predTest = predict(modFit, dataTest_sub)
+# create function to write out answers to individual files
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+# write them out as files
+pml_write_files(as.character(predTest))
+# print write out predictions for the 20 subjects
+print('Predictions for the 20 new subjects')
+print(predTest)
+```
+
